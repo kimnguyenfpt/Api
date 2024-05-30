@@ -1,0 +1,36 @@
+[{
+  "_id": {
+    "$oid": "65f2b403f3eccf26bd97534c"
+  },
+  "username": "Admin",
+  "password": "$2b$10$g0klTjBiUSv6SalYSE9BJuyMYpFm/Jy6wjxYsb3tHj/BH3lrvvhA6",
+  "email": "nguyenthikimnguyen489@gmail.com",
+  "role": "admin"
+},
+{
+  "_id": {
+    "$oid": "65f2b50cac626837bc1ac65e"
+  },
+  "username": "Nguyên",
+  "password": "$2b$10$0G6dZT.QxPs30fgqQetlI.ogaty3EWH5KxK7oBMUeeAreSVisZqte",
+  "email": "nguyenntkps32538@fpt.edu.vn",
+  "role": "user"
+},
+{
+  "_id": {
+    "$oid": "65f52bfb7a9cfb9a5a5026be"
+  },
+  "username": "cunn",
+  "password": "$2b$10$367jJ88rDFEa1BQyzcpXH.U2/zIpE/uSljP0mJ0Fveu3JBYlxpUze",
+  "email": "cunn04@gmail.com",
+  "role": "user"
+},
+{
+  "_id": {
+    "$oid": "65f53e12d1a5573e155ec684"
+  },
+  "username": "kimnguyen",
+  "password": "$2b$10$kVkpjOlCAT6G56nYVLLz8unflIOjRVC7pCCBA8BwNqlAAIvFHL/om",
+  "email": "nguyen04@gmail.com",
+  "role": "user"
+}]

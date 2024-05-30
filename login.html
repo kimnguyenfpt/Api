@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="./public/stylesheets/login.css">
+    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+
+</head>
+<body>
+    <div class="wrapper">
+        <form action="" method="post">
+
+            <h1>Login</h1>
+            <div class="input-box">
+                <input type="email" name="email" id="email" placeholder="Email" required>
+                <i class='bx bx-envelope'></i>
+            </div>
+            <div class="input-box">
+                <input type="password" name="password" id="password" placeholder="Password" required> 
+                <i class='bx bxs-lock-alt'></i> 
+            </div>
+            <div class="remember-forgot">
+                <label><input type="checkbox" name="" id="">Remember me</label>
+                <a href="">Change Password</a>
+            </div>
+            <button type="submit" class="btn">Login</button>
+            <div class="register-link">
+                <p>Don't have a account? <a href="./register.html">Register</a></p>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        const loginButton = document.querySelector('.btn');
+
+        loginButton.addEventListener('click', (event) => {
+            event.preventDefault(); // Ngăn chặn hành vi mặc định của nút đăng nhập
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            fetch('http://localhost:3000/api/users/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: email,
+                    password: password
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Đăng nhập không thành công');
+                }
+                return response.json();
+            })
+            .then(data => { 
+                console.log(data); 
+                alert('Đăng nhập thành công'); 
+                // Lưu token vào localStorage 
+                localStorage.setItem('token', data.token); 
+                console.log(localStorage.getItem('token')); 
+            })
+            .catch(error => { 
+                console.log(error); 
+                alert('Đăng nhập thất bại'); 
+            });
+        });
+
+    </script>
+</body>
+</html>
