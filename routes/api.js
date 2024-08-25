@@ -1,7 +1,14 @@
+require('dotenv').config();
 var express = require('express');
 var router = express.Router();
 const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
+const nodemailer = require('nodemailer');
+const crypto = require('crypto');
+
+
+router.use(bodyParser.urlencoded({ extended: true }));
+router.use(bodyParser.json());
 
 
 const multer = require('multer'); 
@@ -27,9 +34,6 @@ let upload = multer({ storage: storage, fileFilter: checkFileUpLoad });
 // Import model
 const connectDb = require('../models/db');
 
-router.use(bodyParser.urlencoded({ extended: true }));
-router.use(bodyParser.json());
-
 router.get('/products',async(req, res, next)=>{
     const db=await connectDb();
     const productsCollection = db.collection('products');
@@ -43,16 +47,29 @@ router.get('/products',async(req, res, next)=>{
 
 
 //Lấy danh sách sản phẩm nổi bật
-router.get('/products',async(req, res, next)=>{   //,authenToken
-    const db=await connectDb();
+router.get('/hot-products', async (req, res, next) => {
+    const db = await connectDb();
     const productsCollection = db.collection('products');
-    const products = await productsCollection.find({hot: 1}).toArray();
+    const products = await productsCollection.find({ hot: 1 }).limit(8).toArray();
     if (products) {
         res.status(200).json(products);
-    }else{
-        res.status(404).json({message: 'Not found'});
+    } else {
+        res.status(404).json({ message: 'Not found' });
     }
 });
+
+//Lấy danh sách sản phẩm new
+router.get('/new-products', async (req, res, next) => {
+    const db = await connectDb();
+    const productsCollection = db.collection('products');
+    const products = await productsCollection.find({ new: 2 }).limit(4).toArray();
+    if (products) {
+        res.status(200).json(products);
+    } else {
+        res.status(404).json({ message: 'Not found' });
+    }
+});
+
 
 
 //Lấy danh sách sản phẩm theo Mã danh mục: 
@@ -78,41 +95,32 @@ router.get('/products/categoryid/:id', async (req, res, next) => {
 
 //Lấy danh sách sản phẩm theo Tên danh mục
 
+
 router.get('/products/categoryname/:categoryName', async (req, res, next) => {
-    const db = await connectDb();
-    const categoriesCollection = db.collection('categories');
-    const productsCollection = db.collection('products');
-    
-    const categoryName = req.params.categoryName;
-    
-    
-    const category = await categoriesCollection.findOne({ name: categoryName }).then(category => {
-        if (!category) {
-            res.status(404).json({ message: 'Không tìm thấy danh mục' });
-            return null; 
-        }
-        return category;
-    }).catch(err => {
-        res.status(500).json({ message: 'Not Found' });
-        return null; 
-    });
-
-    if (!category) return;
-
-    const categoryId = category.id;
-    
-   
-    await productsCollection.find({ categoryId: categoryId }).toArray().then(products => {
-        if (products.length > 0) {
-            res.status(200).json(products);
-        } else {
-            res.status(404).json({ message: 'No products found for this category' });
-        }
-    }).catch(err => {
-        res.status(500).json({ message: 'Error accessing the database', error: err });
-    });
-});
-
+    try {
+      const db = await connectDb();
+      const categoriesCollection = db.collection('categories');
+      const productsCollection = db.collection('products');
+      
+      const categoryName = req.params.categoryName;
+      const category = await categoriesCollection.findOne({ name: categoryName });
+  
+      if (!category) {
+        return res.status(404).json({ message: 'Không tìm thấy danh mục' });
+      }
+  
+      const categoryId = category._id; // Sử dụng `_id` từ danh mục
+      const products = await productsCollection.find({ categoryId: categoryId }).toArray();
+  
+      if (products.length > 0) {
+        res.status(200).json(products);
+      } else {
+        res.status(404).json({ message: 'No products found for this category' });
+      }
+    } catch (err) {
+      res.status(500).json({ message: 'Error accessing the database', error: err });
+    }
+  });
 
 
 //Tìm kiếm sản phẩm
@@ -193,7 +201,7 @@ router.get('/products/sort/desc/limit/:limit', async (req, res) => {
 //Thêm sản phẩm
 
 router.post('/products', upload.single('img'), async (req, res, next) => {
-    let { name,  price, description } = req.body;
+    let { name,  price, description, categoryId } = req.body;
     let img = req.file ? `${req.file.originalname}` : null; 
 
     const db = await connectDb();
@@ -202,7 +210,7 @@ router.post('/products', upload.single('img'), async (req, res, next) => {
     let lastProduct = await productsCollection.find().sort({ id: -1 }).limit(1).toArray();
     let id = lastProduct[0] ? lastProduct[0].id + 1 : 1;
 
-    let newProduct = { id, name, img , price, description }; 
+    let newProduct = { id, name, img , price, description, categoryId }; 
 
     await productsCollection.insertOne(newProduct);
     if (newProduct) {
@@ -387,37 +395,52 @@ router.get('/users', async (req, res) => {
     }
 });
 
-//dang nhập
+//dang ký
 router.post('/users/register', async (req, res, next) => {
     try {
-        let { email, password, username } = req.body;
+        let { email, password, username, phone } = req.body;
 
-        if (!email || !password || !username) {
+        if (!email || !password || !username || !phone) {
             return res.status(400).json({ message: "Vui lòng điền đầy đủ thông tin" });
         }
 
         const db = await connectDb();
         const userCollection = db.collection('users');
-        let user = await userCollection.findOne({ email: email });
-        if (user) {
+
+        // Kiểm tra nếu username đã tồn tại
+        let userByUsername = await userCollection.findOne({ username: username });
+        if (userByUsername) {
+            return res.status(409).json({ message: "Tên người dùng đã tồn tại" });
+         }
+
+        // Kiểm tra nếu email đã tồn tại
+        let userByEmail = await userCollection.findOne({ email: email });
+        if (userByEmail) {
             return res.status(409).json({ message: "Email đã tồn tại" });
-        } else {
-            const salt = bcrypt.genSaltSync(10);
-            let hashPassword = bcrypt.hashSync(password, salt);
-
-            if (!password || !hashPassword) {
-                return res.status(500).json({ message: "Lỗi khi mã hóa mật khẩu" });
-            }
-
-            let newUser = { email, password: hashPassword, username, role: 'user' };
-            let result = await userCollection.insertOne(newUser);
-
-            // Tạo token cho người dùng mới
-            const token = jwt.sign({ id: result.insertedId, email: newUser.email }, 'secretkey', { expiresIn: '600s' });
-
-            console.log(result);
-            return res.status(200).json({ message: "Đăng ký thành công", token: token });
         }
+
+        // Kiểm tra nếu số điện thoại đã tồn tại
+        let userByPhone = await userCollection.findOne({ phone: phone });
+        if (userByPhone) {
+            return res.status(409).json({ message: "Số điện thoại đã tồn tại" });
+        }
+
+        const salt = bcrypt.genSaltSync(10);
+        let hashPassword = bcrypt.hashSync(password, salt);
+
+        if (!password || !hashPassword) {
+            return res.status(500).json({ message: "Lỗi khi mã hóa mật khẩu" });
+        }
+
+        let newUser = { email, password: hashPassword, username, phone, role: 'user' };
+        let result = await userCollection.insertOne(newUser);
+
+        // Tạo token cho người dùng mới dựa trên số điện thoại
+        const token = jwt.sign({ id: result.insertedId, phone: newUser.phone }, 'secretkey', { expiresIn: '600s' });
+
+        console.log(result);
+        return res.status(200).json({ message: "Đăng ký thành công", token: token });
+
     } catch (error) {
         console.error(error);
         return res.status(500).json({ message: "Lỗi khi thêm người dùng mới" });
@@ -427,33 +450,34 @@ router.post('/users/register', async (req, res, next) => {
 
 
 
+
+
 //chức nang dang nhap su dung token
 
 const jwt = require('jsonwebtoken')
 router.post('/users/login', async (req, res, next) => {
-    let { email, password } = req.body;
+    const { email, password } = req.body;
     const db = await connectDb();
     const userCollection = db.collection('users');
-
-    let user = await userCollection.findOne({ email: email });
-
+  
+    const user = await userCollection.findOne({ email: email });
+  
     if (user) {
-        // Sử dụng await để chờ kết quả từ bcrypt.compare()
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (isPasswordValid) {
-            const token = jwt.sign(
-                { email: user.email, role: user.user },
-                'secretkey',
-                { expiresIn: '600s' }
-            );
-            res.status(200).json({ token: token });
-        } else {
-            res.status(403).json({ message: 'Email hoặc mật khẩu không đúng' });
-        }
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (isPasswordValid) {
+        const token = jwt.sign(
+          { email: user.email, role: user.role }, // Đảm bảo role hoặc các thông tin khác mà bạn muốn bao gồm
+          'secretkey', // Thay thế bằng khóa bí mật của bạn
+          { expiresIn: '600s' }
+        );
+        res.status(200).json({ token: token, user: { username: user.username, email: user.email } });
+      } else {
+        res.status(403).json({ message: 'Email hoặc mật khẩu không đúng' });
+      }
     } else {
-        res.status(403).json({ message: 'Email này chưa đăng kí' });
+      res.status(403).json({ message: 'Email này chưa đăng kí' });
     }
-});
+  });
 //Xác thực token 
 function authenToken(req, res, next){ 
     //Truy cập vào header để lấy authorization
@@ -479,6 +503,174 @@ function authenToken(req, res, next){
     } 
 }
 
+// API để thay đổi mật khẩu
+router.post('/change-password', async (req, res) => {
+    const { email, currentPassword, newPassword } = req.body;
 
+    if (!email || !currentPassword || !newPassword) {
+        return res.status(400).json({ message: 'Cần cung cấp email, mật khẩu cũ và mật khẩu mới.' });
+    }
+
+    try {
+        const db = await connectDb();
+        const userCollection = db.collection('users');
+        const user = await userCollection.findOne({ email: email });
+
+        if (!user) {
+            return res.status(404).json({ message: 'Người dùng không tồn tại.' });
+        }
+
+        // Kiểm tra mật khẩu cũ có chính xác không
+        const match = await bcrypt.compare(currentPassword, user.password);
+
+        if (!match) {
+            return res.status(403).json({ message: 'Mật khẩu cũ không chính xác.' });
+        }
+
+        // Mã hóa mật khẩu mới và cập nhật
+        const salt = bcrypt.genSaltSync(10);
+        const hash = bcrypt.hashSync(newPassword, salt);
+
+        await userCollection.updateOne(
+            { email: email },
+            { $set: { password: hash } }
+        );
+
+        res.status(200).json({ message: 'Mật khẩu đã được cập nhật thành công.' });
+
+    } catch (error) {
+        console.error('Failed to change password:', error);
+        res.status(500).json({ message: 'Lỗi server khi đổi mật khẩu.' });
+    }
+});
+
+router.post('/forgot-password', async (req, res) => {
+    try {
+      console.log('Request received at /forgot-password');
+      const { email } = req.body;
+      console.log('Email:', email);
+  
+      const db = await connectDb();
+      const usersCollection = db.collection('users');
+      const user = await usersCollection.findOne({ email });
+  
+      if (!user) {
+        console.log('User not found');
+        return res.status(400).json({ message: 'User not found' });
+      }
+  
+      const token = crypto.randomBytes(20).toString('hex');
+      const expirationTime = new Date(Date.now() + 3600000); // 1 hour
+  
+      const updateResult = await usersCollection.updateOne({ email }, {
+        $set: {
+          resetPasswordToken: token,
+          resetPasswordExpires: expirationTime
+        }
+      });
+  
+      console.log('Update result:', updateResult);
+  
+      const transporter = nodemailer.createTransport({
+        service: 'Gmail',
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS
+        }
+      });
+  
+      const mailOptions = {
+        to: user.email,
+        from: process.env.EMAIL_USER,
+        subject: 'Password Reset Request',
+        text: `Bạn nhận được thông báo này vì bạn (hoặc người khác) đã yêu cầu đặt lại mật khẩu cho tài khoản của mình.\n\n
+        Vui lòng nhấp vào liên kết sau hoặc dán liên kết này vào trình duyệt của bạn để hoàn tất quá trình:\n\n
+        http://localhost:4200/reset-pass?token=${token}\n\n
+        Nếu bạn không yêu cầu điều này, vui lòng bỏ qua email này và mật khẩu của bạn sẽ không thay đổi.\n`
+      };      
+  
+      transporter.sendMail(mailOptions, (err, response) => {
+        if (err) {
+          console.error('Error sending email: ', err);
+          return res.status(500).json({ message: 'Error sending email' });
+        } else {
+          console.log('Response: ', response);
+          return res.status(200).json({ message: 'Recovery email sent' });
+        }
+      });
+    } catch (error) {
+      console.error('Error in /forgot-password route: ', error);
+      return res.status(500).json({ message: 'Internal Server Error' });
+    }
+  });
+
+router.post('/reset-password/:token', async (req, res) => {
+    try {
+        const { password } = req.body;
+        const token = req.params.token;
+
+        const db = await connectDb();
+        const usersCollection = db.collection('users');
+        const user = await usersCollection.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            return res.status(400).send('Password reset token is invalid or has expired');
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        await usersCollection.updateOne({ resetPasswordToken: token }, {
+            $set: {
+                password: hashedPassword,
+                resetPasswordToken: undefined,
+                resetPasswordExpires: undefined
+            }
+        });
+
+        res.status(200).send('Password has been updated');
+    } catch (error) {
+        console.error('Error in /reset-password route: ', error);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+
+router.post('/checkout', async (req, res) => {
+    try {
+      const { buyerInfo, cartItems, subtotal, total } = req.body;
+  
+      // Log the received order details
+      console.log('Received order details:', { buyerInfo, cartItems, subtotal, total });
+  
+      if (!buyerInfo || !cartItems || subtotal == null || total == null) {
+        return res.status(400).json({ message: 'Invalid order details' });
+      }
+  
+      const order = {
+        buyerInfo,
+        cartItems,
+        subtotal,
+        shippingFee: 100000,
+        total,
+        createdAt: new Date(),
+      };
+  
+      const db = req.app.locals.db;
+      const result = await db.collection('order').insertOne(order);
+  
+      if (!result.acknowledged) {
+        throw new Error('Insert operation failed');
+      }
+  
+      res.status(201).json({ message: 'Order placed successfully', order: { ...order, _id: result.insertedId } });
+    } catch (error) {
+      console.error('Error placing order:', error); // Log the error
+      res.status(500).json({ message: 'Failed to place order', error: error.message });
+    }
+});
 
 module.exports = router;
